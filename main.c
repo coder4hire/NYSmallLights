@@ -14,9 +14,9 @@
 #include <util/delay.h>
 
 #define OUT_BIT _BV(3)
-#define LED_BIT _BV(PB4)
+#define BTN_BIT _BV(PB4)
 
-#define IN_PB4 (PINB & 0x10)
+#define IN_PB4 (PINB & BTN_BIT)
 
 #define LONG_BUTTON_PRESS_INTERVAL 10
 
@@ -39,7 +39,7 @@ typedef enum
 	BTN_LONG_PRESS
 } BUTTONS;
 
-BUTTONS GetButton()
+/*BUTTONS GetButton()
 {
 	static uint8_t pressCounter=0;	
 	
@@ -65,9 +65,9 @@ BUTTONS GetButton()
 	}
 
 	return BTN_NONE;
-}
+}*/
 
-#define EEPROM_write(uiAddress, ucData)\
+/*#define EEPROM_write(uiAddress, ucData)\
 {\
 	while(EECR & (1<<EEPE));\
 	EEAR = uiAddress;\
@@ -82,13 +82,13 @@ BUTTONS GetButton()
 	EEAR = uiAddress;\
 	EECR |= (1<<EERE);\
 	var=EEDR;\
-}
+}*/
 
 struct cRGB led[LEDS_COUNT];
 struct cRGB fadeInTarget;
 int8_t fadeCounter=1;
 
-unsigned short seed=123;
+unsigned long seed=123;
 unsigned short effectTicks=0;
 
 uint8_t currentEffectIdx=0;
@@ -104,9 +104,10 @@ void (*effects[])(uint8_t)=
 
 uint8_t linrand()
 {
-	//seed = (75 * seed + 74) % 0x8001;
-	seed=(seed>>(seed&2))+0x9779;
-	return seed<=RAND_CAP ? seed : seed-RAND_CAP;
+	seed = 214013 * seed + 2531011 ;
+	uint8_t retVal = (seed>>16)&0xFF;
+//	seed=(seed>>(seed&2))+0x9779;
+	return retVal;//<=RAND_CAP ? retVal : retVal-RAND_CAP;
 }
 
 #define delayTicks(ticks) { _delay_ms(100*ticks);effectTicks+=ticks;}
@@ -116,9 +117,9 @@ int main()
 	void (*currentEffect)(uint8_t) = effects[0];
 	
 	DDRB |= OUT_BIT; // OUTPUT	
-	DDRB |= LED_BIT; // OUTPUT
+	DDRB &= ~BTN_BIT; // INPUT
+	PORTB |= BTN_BIT; // Set pullup high for button
 
-	//DDRB &= ~(1 << DDB4); //set PB4 as button input
 	
 //	EEPROM_read(volume,0);
 	
@@ -126,12 +127,15 @@ int main()
 	effectTicks=0;
 	while(1)
 	{
-	//	switch(GetButton())
-	//	{
-	//	}
+		//switch(GetButton())
+		//{
+			//case BTN_SHORT_PRESS:
+				//effectTicks=EFFECT_TIMEOUT_TICKS;
+				//break;
+		//}
 
 
-		if(effectTicks>EFFECT_TIMEOUT_TICKS)
+		if(effectTicks>=EFFECT_TIMEOUT_TICKS || !IN_PB4)
 		{
 			effectTicks=0;
 			currentEffectIdx=(currentEffectIdx+1)%(sizeof(effects)/sizeof(effects[0]));
@@ -152,9 +156,10 @@ void effectRandom(uint8_t isStart)
 {
 	for(uint8_t i=0;i<LEDS_COUNT;i++)
 	{
-		led[i].r=linrand();
-		led[i].g=linrand();
-		led[i].b=linrand();
+		//register uint8_t shift=linrand()&7;		
+		led[i].r=1<<(linrand()&7);
+		led[i].g=1<<(linrand()&7);
+		led[i].b=1<<(linrand()&7);
 	}	
     ws2812_setleds(led,LEDS_COUNT);
     delayTicks(3);
