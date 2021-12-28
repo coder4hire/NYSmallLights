@@ -65,10 +65,6 @@ struct cRGBW { uint8_t g; uint8_t r; uint8_t b; uint8_t w;};
  *         - Wait 50µs to reset the LEDs
  */
 
-void ws2812_setleds     (struct cRGB  *ledarray, uint16_t number_of_leds);
-void ws2812_setleds_pin (struct cRGB  *ledarray, uint16_t number_of_leds,uint8_t pinmask);
-void ws2812_setleds_rgbw(struct cRGBW *ledarray, uint16_t number_of_leds);
-
 /* 
  * Old interface / Internal functions
  *
@@ -76,8 +72,7 @@ void ws2812_setleds_rgbw(struct cRGBW *ledarray, uint16_t number_of_leds);
  * The length is the number of bytes to send - three per LED.
  */
 
-void ws2812_sendarray     (uint8_t *array,uint16_t length);
-void ws2812_sendarray_mask(uint8_t *array,uint16_t length, uint8_t pinmask);
+void ws2812_sendarray_mask(uint8_t *array,uint8_t length, uint8_t pinmask);
 
 
 /*

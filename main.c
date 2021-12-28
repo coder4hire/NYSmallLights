@@ -26,11 +26,12 @@
 #define FADE_WAIT_STEPS 20
 #define BLACK_STEPS 10
 
-#define RAND_CAP 200
 #define TRUE 1
 #define FALSE 0
 
 #define EFFECT_TIMEOUT_TICKS 136
+
+#define setleds(ledarray) ws2812_sendarray_mask((uint8_t*)ledarray, LEDS_COUNT*3, _BV(ws2812_pin))
 
 typedef enum
 {
@@ -88,7 +89,7 @@ struct cRGB led[LEDS_COUNT];
 struct cRGB fadeInTarget;
 int8_t fadeCounter=1;
 
-unsigned long seed=123;
+unsigned short seed=4175;
 unsigned short effectTicks=0;
 
 uint8_t currentEffectIdx=0;
@@ -102,12 +103,18 @@ void (*effects[])(uint8_t)=
 	effectFadeIn
 };
 
+//uint8_t linrand()
+//{
+	//seed = 214013 * seed + 2531011 ;
+	//uint8_t retVal = (seed>>16)&0xFF;
+	//return retVal;
+//}
+
+//4175 /40
 uint8_t linrand()
 {
-	seed = 214013 * seed + 2531011 ;
-	uint8_t retVal = (seed>>16)&0xFF;
-//	seed=(seed>>(seed&2))+0x9779;
-	return retVal;//<=RAND_CAP ? retVal : retVal-RAND_CAP;
+	seed = 3 * seed;
+	return (seed>>((seed>>3)&0xF));
 }
 
 #define delayTicks(ticks) { _delay_ms(100*ticks);effectTicks+=ticks;}
@@ -116,15 +123,13 @@ int main()
 {
 	void (*currentEffect)(uint8_t) = effects[0];
 	
-	DDRB |= OUT_BIT; // OUTPUT	
-	DDRB &= ~BTN_BIT; // INPUT
-	PORTB |= BTN_BIT; // Set pullup high for button
+	DDRB = OUT_BIT; // Setting output for OUT_BIT, others for input
+	PORTB |= BTN_BIT; // Set pull-up high for button
 
 	
 //	EEPROM_read(volume,0);
 	
 	currentEffect(TRUE);
-	effectTicks=0;
 	while(1)
 	{
 		//switch(GetButton())
@@ -137,6 +142,7 @@ int main()
 
 		if(effectTicks>=EFFECT_TIMEOUT_TICKS || !IN_PB4)
 		{
+			_delay_ms(200);
 			effectTicks=0;
 			currentEffectIdx=(currentEffectIdx+1)%(sizeof(effects)/sizeof(effects[0]));
 			currentEffect=effects[currentEffectIdx];
@@ -146,9 +152,6 @@ int main()
 		{
 			currentEffect(FALSE);
 		}			
-
-
-//	PORTB &= ~LED_BIT; // LOW
 	}
 }
 
@@ -156,12 +159,11 @@ void effectRandom(uint8_t isStart)
 {
 	for(uint8_t i=0;i<LEDS_COUNT;i++)
 	{
-		//register uint8_t shift=linrand()&7;		
-		led[i].r=1<<(linrand()&7);
-		led[i].g=1<<(linrand()&7);
-		led[i].b=1<<(linrand()&7);
+		led[i].r=linrand();
+		led[i].g=linrand();
+		led[i].b=linrand();
 	}	
-    ws2812_setleds(led,LEDS_COUNT);
+    setleds(led);
     delayTicks(3);
 }
 
@@ -170,14 +172,9 @@ void effectFadeIn(uint8_t isStart)
 	if(isStart || fadeCounter==-BLACK_STEPS)
 	{
 		fadeCounter=-BLACK_STEPS;		
-		fadeInTarget.r=linrand();
-		fadeInTarget.g=linrand();
-		fadeInTarget.b=linrand();
-		uint8_t offset = linrand()&3;
-		if(offset<4)
-		{
-			((uint8_t*)&fadeInTarget)[offset]>>=4;
-		}
+		fadeInTarget.r=linrand()>>4;
+		fadeInTarget.g=linrand()>>4;
+		fadeInTarget.b=linrand()>>4;
 	}
 	
 	fadeCounter++;
@@ -187,19 +184,17 @@ void effectFadeIn(uint8_t isStart)
 		{
 			((uint8_t*)&led)[i]=0;
 		}
-		ws2812_setleds(led,LEDS_COUNT);
+		setleds(led);
 	}
 	else if(fadeCounter>0 && fadeCounter<=FADE_STEPS)
 	{
-		led[0].r=(((unsigned short)fadeInTarget.r)*fadeCounter)>>4;
-		led[0].g=(((unsigned short)fadeInTarget.g)*fadeCounter)>>4;
-		led[0].b=(((unsigned short)fadeInTarget.b)*fadeCounter)>>4;
-
 		for(uint8_t i=1;i<LEDS_COUNT;i++)
 		{
-			led[i]=led[0];
+		led[i].r+=fadeInTarget.r;
+		led[i].g+=fadeInTarget.g;
+		led[i].b+=fadeInTarget.b;
 		}
-		ws2812_setleds(led,LEDS_COUNT);
+		setleds(led);
 	}
 	else if(fadeCounter>FADE_STEPS+FADE_WAIT_STEPS)
 	{
