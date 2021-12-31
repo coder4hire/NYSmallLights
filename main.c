@@ -22,14 +22,15 @@
 
 #define LEDS_COUNT 9
 #define outputPin 3
-#define FADE_STEPS 16
-#define FADE_WAIT_STEPS 20
-#define BLACK_STEPS 10
+#define FADE_STEPS 32
+#define FADE_WAIT_STEPS 18
+#define FADE_GROUPS 3
+#define BLACK_STEPS 12
 
 #define TRUE 1
 #define FALSE 0
 
-#define EFFECT_TIMEOUT_TICKS 136
+#define EFFECT_TIMEOUT_TICKS 256
 
 #define setleds(ledarray) ws2812_sendarray_mask((uint8_t*)ledarray, LEDS_COUNT*3, _BV(ws2812_pin))
 
@@ -86,42 +87,34 @@ typedef enum
 }*/
 
 struct cRGB led[LEDS_COUNT];
-struct cRGB fadeInTarget;
-int8_t fadeCounter=1;
+struct scRGB fadeSteps[FADE_GROUPS];
 
 unsigned short seed=4175;
 unsigned short effectTicks=0;
 
 uint8_t currentEffectIdx=0;
 
-void effectRandom(uint8_t isStart);
-void effectFadeIn(uint8_t isStart);
-
-void (*effects[])(uint8_t)=
+void effectRandom();
+void effectFadeIn();
+void effectFadeOut();
+void (*effects[])()=
 {
 	effectRandom,
-	effectFadeIn
+	effectFadeIn,
+	effectFadeOut
 };
 
-//uint8_t linrand()
-//{
-	//seed = 214013 * seed + 2531011 ;
-	//uint8_t retVal = (seed>>16)&0xFF;
-	//return retVal;
-//}
-
-//4175 /40
 uint8_t linrand()
 {
 	seed = 3 * seed;
 	return (seed>>((seed>>3)&0xF));
 }
 
-#define delayTicks(ticks) { _delay_ms(100*ticks);effectTicks+=ticks;}
+#define delayTicks(ticks) { _delay_ms(50*ticks);effectTicks+=ticks;}
 
 int main()
 {
-	void (*currentEffect)(uint8_t) = effects[0];
+	void (*currentEffect)() = effects[0];
 	
 	DDRB = OUT_BIT; // Setting output for OUT_BIT, others for input
 	PORTB |= BTN_BIT; // Set pull-up high for button
@@ -144,7 +137,11 @@ int main()
 		{
 			_delay_ms(200);
 			effectTicks=0;
-			currentEffectIdx=(currentEffectIdx+1)%(sizeof(effects)/sizeof(effects[0]));
+			currentEffectIdx++;
+			if(currentEffectIdx>=(sizeof(effects)/sizeof(effects[0])))
+			{
+				currentEffectIdx=0;
+			}
 			currentEffect=effects[currentEffectIdx];
 			currentEffect(TRUE);
 		}
@@ -155,51 +152,112 @@ int main()
 	}
 }
 
-void effectRandom(uint8_t isStart)
+uint8_t getUnsignedRandomStep() {
+	return (linrand()&0x7)|1;
+}
+
+void effectRandom()
 {
 	for(uint8_t i=0;i<LEDS_COUNT;i++)
 	{
 		led[i].r=linrand();
 		led[i].g=linrand();
 		led[i].b=linrand();
-	}	
-    setleds(led);
-    delayTicks(3);
+	}
+	setleds(led);
+	delayTicks(6);
 }
 
-void effectFadeIn(uint8_t isStart)
+void doTransition(uint8_t fadeCounter)
 {
-	if(isStart || fadeCounter==-BLACK_STEPS)
-	{
-		fadeCounter=-BLACK_STEPS;		
-		fadeInTarget.r=linrand()>>4;
-		fadeInTarget.g=linrand()>>4;
-		fadeInTarget.b=linrand()>>4;
+	static uint8_t prevSparkPos=255;
+	static uint8_t shouldDoSpark=0;
+
+	if(fadeCounter>=BLACK_STEPS) {
+		if(fadeCounter<BLACK_STEPS+FADE_STEPS)
+		{
+			for(uint8_t i=0;i<FADE_GROUPS;i++)
+			{
+				led[i].r+=fadeSteps[i].r;
+				led[i].g+=fadeSteps[i].g;
+				led[i].b+=fadeSteps[i].b;
+				led[i+3]=led[i];
+				led[i+6]=led[i];			
+			}
+			setleds(led);
+		}
+		else
+		{
+			if(shouldDoSpark)
+			{
+				uint8_t sparkPos = fadeCounter-(BLACK_STEPS+FADE_STEPS);
+				if(sparkPos>=LEDS_COUNT) {
+					sparkPos = (LEDS_COUNT*2-1)-sparkPos;
+				}
+				if(prevSparkPos<LEDS_COUNT) {
+					led[prevSparkPos]=led[prevSparkPos + (prevSparkPos<FADE_GROUPS ? FADE_GROUPS: -FADE_GROUPS)];
+				}
+				prevSparkPos = sparkPos;
+				if(sparkPos<LEDS_COUNT)
+				{
+					led[sparkPos].r=255;
+					led[sparkPos].g=255;
+					led[sparkPos].b=255;
+				}
+				setleds(led);
+			}
+		}
 	}
-	
-	fadeCounter++;
-	if(fadeCounter==-BLACK_STEPS+1)
+	else
 	{
+		shouldDoSpark=linrand()>128;
+	}
+
+	delayTicks(1);
+}
+
+void effectFadeIn()
+{
+	uint8_t fadeCounter=effectTicks&0x3f;
+	if(fadeCounter==0)
+	{
+		for(uint8_t i=0;i<FADE_GROUPS;i++)
+		{
+			fadeSteps[i].r=getUnsignedRandomStep();
+			fadeSteps[i].g=getUnsignedRandomStep();
+			fadeSteps[i].b=getUnsignedRandomStep();
+		}
+		
 		for(uint8_t i=0;i<LEDS_COUNT*3;i++)
 		{
 			((uint8_t*)&led)[i]=0;
 		}
 		setleds(led);
 	}
-	else if(fadeCounter>0 && fadeCounter<=FADE_STEPS)
+	
+	doTransition(fadeCounter);
+}
+
+void effectFadeOut()
+{
+	uint8_t fadeCounter=effectTicks&0x3f;
+	if(fadeCounter==0)
 	{
-		for(uint8_t i=1;i<LEDS_COUNT;i++)
+		for(uint8_t i=0;i<FADE_GROUPS;i++)
 		{
-		led[i].r+=fadeInTarget.r;
-		led[i].g+=fadeInTarget.g;
-		led[i].b+=fadeInTarget.b;
+			led[i].r = (linrand()&0xE0)|0x20;
+			led[i].g = (linrand()&0xE0)|0x20;
+			led[i].b = (linrand()&0xE0)|0x20;
+
+			fadeSteps[i].r=-(led[i].r>>5);
+			fadeSteps[i].g=-(led[i].g>>5);
+			fadeSteps[i].b=-(led[i].b>>5);
+		
+			led[i+3]=led[i];
+			led[i+6]=led[i];
 		}
-		setleds(led);
-	}
-	else if(fadeCounter>FADE_STEPS+FADE_WAIT_STEPS)
-	{
-		fadeCounter=-BLACK_STEPS;
+		setleds(led);		
 	}
 	
-	delayTicks(1);
+	doTransition(fadeCounter);
 }
